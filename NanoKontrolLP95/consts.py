@@ -31,5 +31,4 @@ track_arm_cc = [32,33,34,35,36,37,38,39]
 
 linked = True
 
-
 CHANNEL = 0 # Channels are numbered 0 through 15, this script only makes use of one MIDI Channel (Channel 1)

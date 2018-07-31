@@ -2,7 +2,7 @@
 from _Framework.SessionComponent import SessionComponent
 from _Framework.SceneComponent import SceneComponent
 import Live
-log_enabled = True
+
 class SpecialSessionComponent(SessionComponent):
     """ Special session subclass that handles ConfigurableButtons """
             
@@ -24,13 +24,8 @@ class SpecialSessionComponent(SessionComponent):
         assert(height in range(len(self._scenes) + 1))
         self._visible_width = width
         self._visible_height = height
-        self._show_highlight = self._show_highlight and False
+        self._show_highlight = False
         self.set_show_highlight(True)
-
-    def move_by(self, track_increment, scene_increment):
-        track_offset = self._track_offset + track_increment
-        scene_offset = self._scene_offset + scene_increment
-        self.set_offsets(max(0, track_offset), max(0, scene_offset))
 
     def width(self):
         return self._visible_width
@@ -57,10 +52,6 @@ class SpecialSessionComponent(SessionComponent):
             SessionComponent.set_offsets(self, track_offset, scene_offset)
 
     def _on_control_surface_offset_changed(self):
-        """
-        Updates offsets in serato to be the same as in control surface
-        Called whenever control surface offsets are changed.
-        """
         SessionComponent.set_offsets(self, self._synced_session.track_offset(), self._synced_session.scene_offset())
 
     def _create_scene(self):
@@ -69,12 +60,3 @@ class SpecialSessionComponent(SessionComponent):
     def _reassign_scenes(self):
         SessionComponent._reassign_scenes(self)
         self.on_selected_scene_changed()
-
-    def _selected_scene_index(self):
-        result = -1
-        for index in range(len(self._scenes)):
-            if self._scenes[index].is_selected():
-                result = index + 1
-                break
-
-        return result

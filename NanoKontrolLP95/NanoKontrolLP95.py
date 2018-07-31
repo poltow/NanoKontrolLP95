@@ -7,13 +7,13 @@ from _Framework.ButtonElement import ButtonElement # Class representing a button
 from _Framework.ControlSurface import ControlSurface # Central base class for scripts based on the new Framework
 from _Framework.InputControlElement import MIDI_CC_TYPE # Base class for all classes representing control elements on a controller
 from _Framework.SliderElement import SliderElement # Class representing a slider on the controller
-
-
 from SpecialSessionComponent import SpecialSessionComponent
 from SpecialMixerComponent import SpecialMixerComponent
 from SpecialTransportComponent import SpecialTransportComponent
 
-
+LONG_PRESS = 0.5
+MON_STATE_NAMES = ['in', 'auto', 'off']
+SYNC_TO = {'<Launchpad95'}
 class NanoKontrolLP95(ControlSurface):
     __module__ = __name__
     __doc__ = " NanoKontrolLP95 controller script "
@@ -28,24 +28,19 @@ class NanoKontrolLP95(ControlSurface):
             self._session = None #session object
             self._mixer = None #mixer object
             self._transport = None #transport object
+            self._last_button_time = time.time()
+            self._io_list_index = 0
             
-            # MODES
-            self._shift_button = None
-            self._cycle_button = None
+            self._setup_controls()
 
-            # INITIALIZE MIXER, SESSIONS
             self._setup_session_control()  # Setup the session object
-            
-            self._track_left_button = None
-            self._track_right_button = None
             self._setup_mixer_control() # Setup the mixer object
             self._session.set_mixer(self._mixer) # Bind mixer to session
-
-            self._play_button = None
-            self._stop_button = None
-            self._rec_button = None
             self._setup_transport_control() # Setup transport object
-            # SET INITIAL SESSION/MIXER AND MODIFIERS BUTTONS
+
+            self._set_mode_button()
+            self._set_normal_mode()
+            self._track = self.song().view.selected_track
             
             self.set_highlighting_session_component(self._session)
 
@@ -55,7 +50,64 @@ class NanoKontrolLP95(ControlSurface):
         self._suppress_send_midi = True # Turn rebuild back on, once we're done setting up
         Live.Base.log("NanoKontrolLP95 Loaded !")
 
+    def disconnect(self):
+        """clean things up on disconnect"""
+        if self._cycle_button != None:
+            self._cycle_button.remove_value_listener(self._cycle_button_value)
+        self._clear_controls()
+        self._transport.set_stop_button(None)
+        self._transport.set_play_button(None)
+        self._transport.set_rec_button(None)
 
+        self._solo_buttons = None 
+        self._mute_buttons = None 
+        self._arm_buttons = None 
+        self._knobs = None 
+        self._faders = None 
+
+        self._ff_button = None
+        self._rwd_button = None
+        self._play_button = None
+        self._stop_button = None
+        self._rec_button = None
+        
+        self._track_left_button = None
+        self._track_right_button = None
+        self._cycle_button = None
+        
+        self._set_button = None    
+        self._mrk_left_button = None
+        self._mrk_right_button = None
+        
+        self._session = None
+        self._mixer = None
+        self._transport = None
+
+        ControlSurface.disconnect(self)
+    
+    def _setup_controls(self):
+        self._track_left_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, track_left_btn)
+        self._track_right_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, track_right_btn)    
+        self._cycle_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, cycle_btn)
+        self._cycle_button_active = False             
+        
+        self._set_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, set_btn)        
+        self._mrk_left_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, mrk_left_btn)
+        self._mrk_right_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, mrk_right_btn)
+
+        self._ff_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, ff_btn)
+        self._rwd_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, rwd_btn)        
+        self._play_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, play_btn)
+        self._stop_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, stop_btn)
+        self._rec_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, rec_btn)
+        
+        self._solo_buttons = [ButtonElement(True, MIDI_CC_TYPE, CHANNEL, track_solo_cc[index]) for index in range(num_tracks)] 
+        self._mute_buttons = [ButtonElement(True, MIDI_CC_TYPE, CHANNEL, track_mute_cc[index]) for index in range(num_tracks)] 
+        self._arm_buttons = [ButtonElement(True, MIDI_CC_TYPE, CHANNEL, track_arm_cc[index]) for index in range(num_tracks)] 
+        self._knobs = [SliderElement(MIDI_CC_TYPE, CHANNEL, mixer_knob_cc[index]) for index in range(num_tracks)] 
+        self._faders = [SliderElement(MIDI_CC_TYPE, CHANNEL, mixer_fader_cc[index]) for index in range(num_tracks)] 
+    
+    
     def _setup_session_control(self):
         # CREATE SESSION, SET OFFSETS, BUTTONS NAVIGATION AND BUTTON MATRIX
         self._session = SpecialSessionComponent(num_tracks, num_scenes) #(num_tracks, num_scenes)
@@ -63,87 +115,306 @@ class NanoKontrolLP95(ControlSurface):
 
     def _setup_mixer_control(self):
         #CREATE MIXER, SET OFFSET (SPECIALMIXERCOMPONENT USES SPECIALCHANNELSTRIP THAT ALLOWS US TO UNFOLD TRACKS WITH TRACK SELECT BUTTON)
-        self._mixer = SpecialMixerComponent(num_tracks, 0, False, False) # 8 tracks, 2 returns, no EQ, no filters
+        self._mixer = SpecialMixerComponent(self, num_tracks, 0, False, False) # 8 tracks, 2 returns, no EQ, no filters
         self._mixer.name = 'Mixer'
         self._mixer.set_track_offset(0) #Sets start point for mixer strip (offset from left)
-        self._track_left_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, track_left_btn)
-        self._track_right_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, track_right_btn)        
         self._mixer.set_select_buttons(self._track_right_button,self._track_left_button)
-        self._init_mixer_controls()
-
+        self._mixer.set_knobs(self._knobs)
     def _setup_transport_control(self):
         # CREATE TRANSPORT DEVICE
         self._transport = SpecialTransportComponent(self)
-        self._play_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, play_btn)
-        self._stop_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, stop_btn)
-        self._rec_button = ButtonElement(True, MIDI_CC_TYPE, CHANNEL, rec_btn)
-        
         self._transport.set_stop_button(self._stop_button)
         self._transport.set_play_button(self._play_button)
-        self._transport.set_record_button(self._rec_button)
+        self._transport.set_rec_button(self._rec_button)
         
     def connect_script_instances(self, instanciated_scripts):
         #Live.Base.log("connect_script_instances - Start")
         #Live.Base.log("connect_script_instances - self._control_surfaces()=" + str(self._control_surfaces()))
         if(linked):
             for control_surface in self._control_surfaces():
-                #Live.Base.log("connect_script_instances - control_surface=" + str(control_surface))
-                control_surface_session = control_surface.highlighting_session_component()
-                if control_surface_session:
-                    if(control_surface_session!=self._session):
-                        #Live.Base.log("connect_script_instances - control_surface_session=" + str(control_surface_session))
-                        self._session.sync_to(control_surface_session)
-                        self._on_track_list_changed()
-                        break
+                control_surface_type = str(control_surface)
+                for sync_master in SYNC_TO:
+                    if(control_surface_type.startswith(sync_master)):
+                        control_surface_session = control_surface.highlighting_session_component()
+                        if control_surface_session:
+                            self._session.sync_to(control_surface_session)
+                            self._on_track_list_changed()
+                            break
 
 
-    #MODES ARE HERE: INITIALIZATIONS, DISCONNECTS BUTTONS, SLIDERS, ENCODERS
     def _clear_controls(self):
-        # TURNING OFF ALL LEDS IN MATRIX
+            
+        if (self._ff_button != None):
+            self._ff_button.remove_value_listener(self._in_out_down_value)
+            self._ff_button.turn_off()
+    
+        if (self._rwd_button != None):
+            self._rwd_button.remove_value_listener(self._in_out_up_value)
+            self._rwd_button.turn_off()           
+            
+        if (self._set_button != None):
+            self._set_button.remove_value_listener(self._monitor_value)
+            self._set_button.remove_value_listener(self._dup_track_value)           
+            
+        if (self._mrk_left_button != None):
+            self._mrk_left_button.remove_value_listener(self._io_down_value)
+            self._mrk_left_button.remove_value_listener(self._new_midi_value)            
+            
+        if (self._mrk_right_button != None):
+            self._mrk_right_button.remove_value_listener(self._io_up_value)
+            self._mrk_right_button.remove_value_listener(self._new_audio_value)            
+
         # SESSION
-        
-        for index in range(num_tracks):
-            strip = self._mixer.channel_strip(index)
+        resetsend_controls = []
+        self._mixer.send_controls = []
+        self._session.set_stop_track_clip_buttons(None)
+
+        # MIXER
+        self._mixer._set_send_nav(None, None)
+        for track_index in range(num_tracks):
+            strip = self._mixer.channel_strip(track_index)
             strip.set_solo_button(None)
             strip.set_mute_button(None)
             strip.set_arm_button(None)
-            strip.set_pan_control(None)
-            strip.set_volume_control(None)
-        
-        # MIXER
-        self._mixer._set_send_nav(None, None)
+            resetsend_controls.append(None)
+            strip.set_select_button(None)
+            for i in range(12):
+                self._mixer.send_controls.append(None)
+            strip.set_send_controls(tuple(self._mixer.send_controls))
+        self._mixer.set_resetsend_buttons(tuple(resetsend_controls))
+        self.log_message("Controls Cleared")
 
-        # TRANSPORT
-        self._transport.set_stop_button(None)
-        self._transport.set_play_button(None)
-        self._transport.set_record_button(None)
+    def _set_mode_button(self):
+        if self._cycle_button != None:
+            self._cycle_button.remove_value_listener(self._cycle_button_value)
+            self._cycle_button.add_value_listener(self._cycle_button_value)
+            self._cycle_button.set_light(self._cycle_button_active)
 
-        self._play_button = None
-        self._stop_button = None
-        self._rec_button = None
-        self._track_left_button = None
-        self._track_right_button = None
-
-        Live.Base.log("Controls Cleared")
-
-    def _init_mixer_controls(self):
-        is_momentary = True
-       
-        ### SET ARM, SOLO, MUTE
+    def _cycle_button_value(self, value):
+        assert (value in range(128))        
+        if self._cycle_button != None:
+            if value is not 0:
+                self._cycle_button_active = not self._cycle_button_active
+                self._clear_controls()
+                if self._cycle_button_active:
+                    self._set_alt_mode()
+                else:
+                    self._set_normal_mode()
+                self.update()   
+            
+    def _set_normal_mode(self):
         for index in range(num_tracks):
             strip = self._mixer.channel_strip(index)
-            strip.set_solo_button(ButtonElement(is_momentary, MIDI_CC_TYPE, CHANNEL, track_solo_cc[index]))
-            strip.set_mute_button(ButtonElement(is_momentary, MIDI_CC_TYPE, CHANNEL, track_mute_cc[index]))
-            strip.set_arm_button(ButtonElement(is_momentary, MIDI_CC_TYPE, CHANNEL, track_arm_cc[index]))
-            strip.set_pan_control(SliderElement(MIDI_CC_TYPE, CHANNEL, mixer_knob_cc[index]))
-            strip.set_volume_control(SliderElement(MIDI_CC_TYPE, CHANNEL, mixer_fader_cc[index]))
+            strip.set_solo_button(self._solo_buttons[index])
+            strip.set_mute_button(self._mute_buttons[index])
+            strip.set_arm_button(self._arm_buttons[index])
+            strip.set_pan_control(self._knobs[index])
+            strip.set_volume_control(self._faders[index])
+        self._set_in_out_nav_listeners()    
+        self.show_message("NORMAL MODE")
+                        
+    def _set_alt_mode(self):
+        self._mixer._set_send_nav(self._ff_button, self._rwd_button)
+        stop_track_controls = []
+        resetsend_controls = []
+        # SET SESSION TRACKSTOP, TRACK SELECT, RESET SEND KNOB
+        for index in range(num_tracks):
+            strip = self._mixer.channel_strip(index)
+            strip.set_select_button(self._solo_buttons[index])
+            stop_track_controls.append(self._arm_buttons[index])
+            resetsend_controls.append(self._mute_buttons[index])
+        self._session.set_stop_track_clip_buttons(tuple(stop_track_controls))
+        self._mixer.set_resetsend_buttons(tuple(resetsend_controls))
+        self._mixer._update_send_index()
+        self._set_create_track_listeners()
+        
+    def _set_in_out_nav_listeners(self):
+        if (self._ff_button != None):
+            self._ff_button.add_value_listener(self._in_out_down_value)
+    
+        if (self._rwd_button != None):
+            self._rwd_button.add_value_listener(self._in_out_up_value)
+            
+        if (self._set_button != None):
+            self._set_button.add_value_listener(self._monitor_value)
+            
+        if (self._mrk_left_button != None):
+            self._mrk_left_button.add_value_listener(self._io_down_value)
+            
+        if (self._mrk_right_button != None):
+            self._mrk_right_button.add_value_listener(self._io_up_value)                                                
+        self.update()
+        
+    def _in_out_up_value(self, value):
+        if(value is not 0 and self._io_list_index>0):
+            Live.Base.log("_in_out_up_value")
+            self._io_list_index = self._io_list_index-1
+            self.show_message(self._show_routing_msg())
+            self.update()
+        
+    def _in_out_down_value(self, value):
+        if(value is not 0 and self._io_list_index<3):
+            Live.Base.log("_in_out_down_value")        
+            self._io_list_index = self._io_list_index+1 
+            self.show_message(self._show_routing_msg())  
+            self.update()
+            
+    def _monitor_value(self, value):
+        now = time.time()
+        if(value is not 0):
+            self._last_button_time = now
+        else:
+            song = self.song()
+            if self._track in song.tracks:
+                if now - self._last_button_time < LONG_PRESS:            
+                    if not self._track.is_foldable:
+                        self._track.current_monitoring_state = (self._track.current_monitoring_state + 1) % 3
+                else:  
+                    self._set_default_io()            
 
-    def disconnect(self):
-        """clean things up on disconnect"""
-        self._clear_controls()
-        self._session = None
-        self._mixer = None
-        self._transport = None
+    def _set_default_io(self):
+        routings = list(self._get_track_routing_list())
+        if self._track.has_midi_input:
+            if(self._io_list_index==0):      
+                self._track.input_routing_type = routings[0]
+            elif(self._io_list_index==1):      
+                self._track.input_routing_channel = routings[0]
+            elif(self._io_list_index==2):
+                if self._track.has_audio_output:
+                    if self._track.is_grouped:
+                        self._track.output_routing_type = routings[2]       
+                    else:
+                        self._track.output_routing_type = routings[1]
+                else:
+                    self._track.output_routing_type = routings[-1]
+            elif(self._io_list_index==3):      
+                self._track.output_routing_channel = routings[0]  
+        else:
+            if(self._io_list_index==0):      
+                self._track.input_routing_type = routings[-1]
+            elif(self._io_list_index==1):      
+                self._track.input_routing_channel = routings[0]
+            elif(self._io_list_index==2):
+                if self._track.is_grouped:
+                    self._track.output_routing_type = routings[2]       
+                else:
+                    self._track.output_routing_type = routings[1]
+            elif(self._io_list_index==3):      
+                self._track.output_routing_channel = routings[0]  
+        self.show_message(self._show_routing_msg())                                    
+                                     
+    def _io_down_value(self, value):
+        if(value is not 0):
+            self._change_io_value(-1)
+            
+    def _io_up_value(self, value):
+        if(value is not 0):
+            self._change_io_value(1)              
 
-        ControlSurface.disconnect(self)
-        return None
+    def _change_io_value(self, chg):
+        routings = list(self._get_track_routing_list())
+        current_routing  = self._get_track_current_routing()
+        new_index = -1
+        if current_routing in routings:
+            new_index = (routings.index(current_routing) + chg) % len(routings)
+            self._set_new_io(routings[new_index])
+            self.show_message(self._show_routing_msg())
+            
+    def _show_routing_msg(self):
+        route = ''
+        if(self._io_list_index==0):      
+            route = ' INPUT: ' +  str(self._track.input_routing_type.display_name)
+        elif(self._io_list_index==1):      
+            route = ' SUB_INPUT: ' +  str(self._track.input_routing_channel.display_name)
+        elif(self._io_list_index==2):      
+            route = ' OUTPUT: ' +  str(self._track.output_routing_type.display_name)
+        elif(self._io_list_index==3):      
+            route = ' SUB_OUTPUT: ' +  str(self._track.output_routing_channel.display_name)
+        return ("TRACK: " + str(self._track.name) + route)
+
+
+    def _set_new_io(self, new_routing):
+        if(self._io_list_index==0):      
+            self._track.input_routing_type = new_routing
+        elif(self._io_list_index==1):      
+            self._track.input_routing_channel = new_routing
+        elif(self._io_list_index==2):      
+            self._track.output_routing_type = new_routing
+        elif(self._io_list_index==3):      
+            self._track.output_routing_channel = new_routing     
+        
+    def _get_track_routing_list(self):
+        if(self._io_list_index==0):      
+            return self._track.available_input_routing_types
+        if(self._io_list_index==1):      
+            return self._track.available_input_routing_channels
+        if(self._io_list_index==2):      
+            return self._track.available_output_routing_types
+        if(self._io_list_index==3):      
+            return self._track.available_output_routing_channels
+
+    def _get_track_current_routing(self):
+        if(self._io_list_index==0):      
+            return self._track.input_routing_type
+        if(self._io_list_index==1):      
+            return self._track.input_routing_channel
+        if(self._io_list_index==2):      
+            return self._track.output_routing_type
+        if(self._io_list_index==3):      
+            return self._track.output_routing_channel
+        
+        
+    def _on_selected_track_changed(self):
+        # ALLOWS TO GRAB THE FIRST DEVICE OF A SELECTED TRACK IF THERE'S ANY
+        ControlSurface._on_selected_track_changed(self)
+        self._track = self.song().view.selected_track
+              
+    def update(self):
+        ControlSurface.update(self)
+        if not self._cycle_button_active:
+            self._ff_button.set_light(self._io_list_index<3)
+            self._rwd_button.set_light(self._io_list_index>0)
+        self._cycle_button.set_light(self._cycle_button_active)
+        
+        
+    def _set_create_track_listeners(self):
+        if (self._set_button != None):
+            self._set_button.add_value_listener(self._dup_track_value)
+            
+        if (self._mrk_left_button != None):
+            self._mrk_left_button.add_value_listener(self._new_midi_value)
+            
+        if (self._mrk_right_button != None):
+            self._mrk_right_button.add_value_listener(self._new_audio_value)                                                
+        self.update()            
+        
+    def _dup_track_value(self, value):
+        now = time.time()
+        if(value is not 0):
+            self._last_button_time = now
+        else:
+            song = self.song()
+            if self._track in song.tracks:
+                if now - self._last_button_time < LONG_PRESS:            
+                    song.duplicate_track(list(song.tracks).index(self._track))
+                else:  
+                    song.delete_track(list(song.tracks).index(self._track))
+                 
+                
+    def _new_audio_value(self, value):
+        if(value is not 0):
+            self._add_track(self.song().create_audio_track)
+            
+    def _new_midi_value(self, value):
+        if(value is not 0):
+            self._add_track(self.song().create_midi_track)
+            
+    def _add_track(self, func):
+        song = self.song()
+        index = list(song.tracks).index(self._track) + 1
+        if index < len(song.tracks) and index >0:
+            track = song.tracks[index]
+            if track.is_foldable or track.is_grouped:
+                while index < len(song.tracks) and song.tracks[index].is_grouped:
+                    index += 1
+        func(index)                                          
