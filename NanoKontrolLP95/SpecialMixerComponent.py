@@ -115,7 +115,8 @@ class SpecialMixerComponent(MixerComponent):
             for i in range(12):
                 self._send_controls.append(None)
             self._send_controls[self._sends_index] = self._knobs[index]
-            self._control_surface.show_message("SEND CONTROLLED IS: " + str(self.song().return_tracks[self._sends_index].name))
+            if len(self.song().return_tracks) > 0:
+                self._control_surface.show_message("SEND CONTROLLED IS: " + str(self.song().return_tracks[self._sends_index].name))
             strip.set_send_controls(tuple(self._send_controls))
             
         self._button_down.set_light(self._sends_index != 0)
