@@ -7,6 +7,7 @@ from _Framework.ButtonElement import ButtonElement # Class representing a button
 from _Framework.ControlSurface import ControlSurface # Central base class for scripts based on the new Framework
 from _Framework.InputControlElement import MIDI_CC_TYPE # Base class for all classes representing control elements on a controller
 from _Framework.SliderElement import SliderElement # Class representing a slider on the controller
+from _Framework.Profile import profile
 from SpecialSessionComponent import SpecialSessionComponent
 from SpecialMixerComponent import SpecialMixerComponent
 from SpecialTransportComponent import SpecialTransportComponent
@@ -44,6 +45,9 @@ class NanoKontrolLP95(ControlSurface):
             
             self.set_highlighting_session_component(self._session)
 
+            self._flash_counter = 0
+            self._flash_on = True
+            
             for component in self.components:
                 component.set_enabled(True)
 
@@ -145,11 +149,11 @@ class NanoKontrolLP95(ControlSurface):
     def _clear_controls(self):
             
         if (self._ff_button != None):
-            self._ff_button.remove_value_listener(self._in_out_down_value)
+            self._ff_button.remove_value_listener(self._out_value)
             self._ff_button.turn_off()
     
         if (self._rwd_button != None):
-            self._rwd_button.remove_value_listener(self._in_out_up_value)
+            self._rwd_button.remove_value_listener(self._in_value)
             self._rwd_button.turn_off()           
             
         if (self._set_button != None):
@@ -157,11 +161,11 @@ class NanoKontrolLP95(ControlSurface):
             self._set_button.remove_value_listener(self._dup_track_value)           
             
         if (self._mrk_left_button != None):
-            self._mrk_left_button.remove_value_listener(self._io_down_value)
+            self._mrk_left_button.remove_value_listener(self._sub_in_value)
             self._mrk_left_button.remove_value_listener(self._new_midi_value)            
             
         if (self._mrk_right_button != None):
-            self._mrk_right_button.remove_value_listener(self._io_up_value)
+            self._mrk_right_button.remove_value_listener(self._sub_out_value)
             self._mrk_right_button.remove_value_listener(self._new_audio_value)            
 
         # SESSION
@@ -211,7 +215,7 @@ class NanoKontrolLP95(ControlSurface):
             strip.set_pan_control(self._knobs[index])
             strip.set_volume_control(self._faders[index])
         self._set_in_out_nav_listeners()    
-        self.show_message("NORMAL MODE")
+        self.show_message("IN/OUT SETUP - MUTE SOLO ARM")
                         
     def _set_alt_mode(self):
         self._mixer._set_send_nav(self._ff_button, self._rwd_button)
@@ -227,38 +231,25 @@ class NanoKontrolLP95(ControlSurface):
         self._mixer.set_resetsend_buttons(tuple(resetsend_controls))
         self._mixer._update_send_index()
         self._set_create_track_listeners()
+        self.show_message("TRACK CREATE DEL DUPE - SEL STOP RESET SEND")
         
     def _set_in_out_nav_listeners(self):
         if (self._ff_button != None):
-            self._ff_button.add_value_listener(self._in_out_down_value)
+            self._ff_button.add_value_listener(self._out_value)
     
         if (self._rwd_button != None):
-            self._rwd_button.add_value_listener(self._in_out_up_value)
+            self._rwd_button.add_value_listener(self._in_value)
             
         if (self._set_button != None):
             self._set_button.add_value_listener(self._monitor_value)
             
         if (self._mrk_left_button != None):
-            self._mrk_left_button.add_value_listener(self._io_down_value)
+            self._mrk_left_button.add_value_listener(self._sub_in_value)
             
         if (self._mrk_right_button != None):
-            self._mrk_right_button.add_value_listener(self._io_up_value)                                                
+            self._mrk_right_button.add_value_listener(self._sub_out_value)                                                
         self.update()
-        
-    def _in_out_up_value(self, value):
-        if(value is not 0 and self._io_list_index>0):
-            Live.Base.log("_in_out_up_value")
-            self._io_list_index = self._io_list_index-1
-            self.show_message(self._show_routing_msg())
-            self.update()
-        
-    def _in_out_down_value(self, value):
-        if(value is not 0 and self._io_list_index<3):
-            Live.Base.log("_in_out_down_value")        
-            self._io_list_index = self._io_list_index+1 
-            self.show_message(self._show_routing_msg())  
-            self.update()
-            
+           
     def _monitor_value(self, value):
         now = time.time()
         if(value is not 0):
@@ -273,97 +264,71 @@ class NanoKontrolLP95(ControlSurface):
                     self._set_default_io()            
 
     def _set_default_io(self):
-        routings = list(self._get_track_routing_list())
         if self._track.has_midi_input:
-            if(self._io_list_index==0):      
-                self._track.input_routing_type = routings[0]
-            elif(self._io_list_index==1):      
-                self._track.input_routing_channel = routings[0]
-            elif(self._io_list_index==2):
+                self._track.input_routing_type = list(self._track.available_input_routing_types)[0]
                 if self._track.has_audio_output:
                     if self._track.is_grouped:
-                        self._track.output_routing_type = routings[2]       
+                        self._track.output_routing_type = list(self._track.available_output_routing_types)[2]       
                     else:
-                        self._track.output_routing_type = routings[1]
+                        self._track.output_routing_type = list(self._track.available_output_routing_types)[1]
                 else:
-                    self._track.output_routing_type = routings[-1]
-            elif(self._io_list_index==3):      
-                self._track.output_routing_channel = routings[0]  
+                    self._track.output_routing_type = list(self._track.available_output_routing_types)[-1]
         else:
-            if(self._io_list_index==0):      
-                self._track.input_routing_type = routings[-1]
-            elif(self._io_list_index==1):      
-                self._track.input_routing_channel = routings[0]
-            elif(self._io_list_index==2):
+                self._track.input_routing_type = list(self._track.available_input_routing_types)[-1]
                 if self._track.is_grouped:
-                    self._track.output_routing_type = routings[2]       
+                    self._track.output_routing_type = list(self._track.available_output_routing_types)[2]       
                 else:
-                    self._track.output_routing_type = routings[1]
-            elif(self._io_list_index==3):      
-                self._track.output_routing_channel = routings[0]  
-        self.show_message(self._show_routing_msg())                                    
+                    self._track.output_routing_type = list(self._track.available_output_routing_types)[1]
+                    
+        self._track.input_routing_channel = list(self._track.available_input_routing_channels)[0]            
+        self._track.output_routing_channel = list(self._track.available_output_routing_channels)[0]  
+        self.show_message("TRACK: " + str(self._track.name) + ' INPUT - OUTPUT RESET ')                             
                                      
-    def _io_down_value(self, value):
+    def _in_value(self, value):
         if(value is not 0):
-            self._change_io_value(-1)
+            routings = list(self._track.available_input_routing_types)
+            current_routing = self._track.input_routing_type
+            if current_routing in routings:
+                new_index = (routings.index(current_routing) + 1) % len(routings)
+                self._track.input_routing_type = routings[new_index]
+                route = ' INPUT: ' +  str(self._track.input_routing_type.display_name)
+                self.show_message("TRACK: " + str(self._track.name) + route)
+            self.update()
             
-    def _io_up_value(self, value):
+    def _out_value(self, value):
         if(value is not 0):
-            self._change_io_value(1)              
+            routings = list(self._track.available_output_routing_types)
+            current_routing = self._track.output_routing_type
+            if current_routing in routings:
+                new_index = (routings.index(current_routing) + 1) % len(routings)
+                self._track.output_routing_type = routings[new_index]
+                route = ' OUTPUT: ' +  str(self._track.output_routing_type.display_name)
+                self.show_message("TRACK: " + str(self._track.name) + route)
+        self.update()
 
-    def _change_io_value(self, chg):
-        routings = list(self._get_track_routing_list())
-        current_routing  = self._get_track_current_routing()
-        new_index = -1
-        if current_routing in routings:
-            new_index = (routings.index(current_routing) + chg) % len(routings)
-            self._set_new_io(routings[new_index])
-            self.show_message(self._show_routing_msg())
-            
-    def _show_routing_msg(self):
-        route = ''
-        if(self._io_list_index==0):      
-            route = ' INPUT: ' +  str(self._track.input_routing_type.display_name)
-        elif(self._io_list_index==1):      
-            route = ' SUB_INPUT: ' +  str(self._track.input_routing_channel.display_name)
-        elif(self._io_list_index==2):      
-            route = ' OUTPUT: ' +  str(self._track.output_routing_type.display_name)
-        elif(self._io_list_index==3):      
-            route = ' SUB_OUTPUT: ' +  str(self._track.output_routing_channel.display_name)
-        return ("TRACK: " + str(self._track.name) + route)
+    def _sub_in_value(self, value):
+        if(value is not 0):
+            routings = list(self._track.available_input_routing_channels)
+            current_routing = self._track.input_routing_channel
+            if current_routing in routings:
+                new_index = (routings.index(current_routing) + 1) % len(routings)
+                self._track.input_routing_channel = routings[new_index]
+                route = ' SUB_INPUT: ' +  str(self._track.input_routing_channel.display_name)
+                self.show_message("TRACK: " + str(self._track.name) + route)
+            self.update()
+     
+    def _sub_out_value(self, value):
+        if(value is not 0):
+            routings = list(self._track.available_output_routing_channels)
+            current_routing = self._track.output_routing_channel
+            if current_routing in routings:
+                new_index = (routings.index(current_routing) + 1) % len(routings)
+                self._track.output_routing_channel = routings[new_index]
+                route = ' SUB_OUTPUT: ' +  str(self._track.output_routing_channel.display_name)
+                self.show_message("TRACK: " + str(self._track.name) + route)                       
+            self.update()
 
 
-    def _set_new_io(self, new_routing):
-        if(self._io_list_index==0):      
-            self._track.input_routing_type = new_routing
-        elif(self._io_list_index==1):      
-            self._track.input_routing_channel = new_routing
-        elif(self._io_list_index==2):      
-            self._track.output_routing_type = new_routing
-        elif(self._io_list_index==3):      
-            self._track.output_routing_channel = new_routing     
-        
-    def _get_track_routing_list(self):
-        if(self._io_list_index==0):      
-            return self._track.available_input_routing_types
-        if(self._io_list_index==1):      
-            return self._track.available_input_routing_channels
-        if(self._io_list_index==2):      
-            return self._track.available_output_routing_types
-        if(self._io_list_index==3):      
-            return self._track.available_output_routing_channels
-
-    def _get_track_current_routing(self):
-        if(self._io_list_index==0):      
-            return self._track.input_routing_type
-        if(self._io_list_index==1):      
-            return self._track.input_routing_channel
-        if(self._io_list_index==2):      
-            return self._track.output_routing_type
-        if(self._io_list_index==3):      
-            return self._track.output_routing_channel
-        
-        
     def _on_selected_track_changed(self):
         # ALLOWS TO GRAB THE FIRST DEVICE OF A SELECTED TRACK IF THERE'S ANY
         ControlSurface._on_selected_track_changed(self)
@@ -371,9 +336,6 @@ class NanoKontrolLP95(ControlSurface):
               
     def update(self):
         ControlSurface.update(self)
-        if not self._cycle_button_active:
-            self._ff_button.set_light(self._io_list_index<3)
-            self._rwd_button.set_light(self._io_list_index>0)
         self._cycle_button.set_light(self._cycle_button_active)
         
         
@@ -399,8 +361,7 @@ class NanoKontrolLP95(ControlSurface):
                     song.duplicate_track(list(song.tracks).index(self._track))
                 else:  
                     song.delete_track(list(song.tracks).index(self._track))
-                 
-                
+
     def _new_audio_value(self, value):
         if(value is not 0):
             self._add_track(self.song().create_audio_track)
@@ -417,4 +378,17 @@ class NanoKontrolLP95(ControlSurface):
             if track.is_foldable or track.is_grouped:
                 while index < len(song.tracks) and song.tracks[index].is_grouped:
                     index += 1
-        func(index)                                          
+        func(index)
+        
+    @profile
+    def update_display(self):
+        super(NanoKontrolLP95, self).update_display()
+        self._flash_counter = self._flash_counter + 1
+        if self._cycle_button_active  == True:
+            if(self._flash_counter % 2  == 0):
+                if (self._flash_on == True):
+                    self._cycle_button.send_value(127) 
+                else:
+                    self._cycle_button.send_value(0) 
+                self._flash_on = not self._flash_on
+                self._flash_counter = self._flash_counter % 4                                                  

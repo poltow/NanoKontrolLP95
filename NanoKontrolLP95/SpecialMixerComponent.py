@@ -72,7 +72,14 @@ class SpecialMixerComponent(MixerComponent):
         #returns = self.returns_to_use()
         if value is not 0:
             if self.channel_strip(self._send_reset.index(sender))._send_controls[self._sends_index].mapped_parameter() != None:
-                self.channel_strip(self._send_reset.index(sender))._send_controls[self._sends_index].mapped_parameter().value = 0
+                if(send_on_off == True):
+                    if(self.channel_strip(self._send_reset.index(sender))._send_controls[self._sends_index].mapped_parameter().value==0):
+                        self.channel_strip(self._send_reset.index(sender))._send_controls[self._sends_index].mapped_parameter().value = 1.0
+                    else:  
+                        self.channel_strip(self._send_reset.index(sender))._send_controls[self._sends_index].mapped_parameter().value = 0
+                else:
+                    self.channel_strip(self._send_reset.index(sender))._send_controls[self._sends_index].mapped_parameter().value = 0
+                
 
     def _set_send_nav(self, send_up, send_down):
         # SET BUTTONS TO NAVIGATE THROUGH TRACKSENDS KNOBS
