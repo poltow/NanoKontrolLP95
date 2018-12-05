@@ -14,7 +14,7 @@ from SpecialTransportComponent import SpecialTransportComponent
 
 LONG_PRESS = 0.5
 MON_STATE_NAMES = ['in', 'auto', 'off']
-SYNC_TO = {'<Launchpad95'}
+SYNC_TO_LIST = {'Launchpad95'}
 class NanoKontrolLP95(ControlSurface):
     __module__ = __name__
     __doc__ = " NanoKontrolLP95 controller script "
@@ -137,8 +137,8 @@ class NanoKontrolLP95(ControlSurface):
         if(linked):
             for control_surface in self._control_surfaces():
                 control_surface_type = str(control_surface)
-                for sync_master in SYNC_TO:
-                    if(control_surface_type.startswith(sync_master)):
+                for sync_master in SYNC_TO_LIST:
+                    if(control_surface_type.count(sync_master)>0):
                         control_surface_session = control_surface.highlighting_session_component()
                         if control_surface_session:
                             self._session.sync_to(control_surface_session)
